@@ -75,12 +75,17 @@ app.put("/api/products/:MAVACH", (req, res) => {
 app.delete("/api/products/:MAVACH", (req, res) => {
   const { MAVACH } = req.params;
   const sql = "DELETE FROM hang WHERE MAVACH = ?";
+
   pool.query(sql, [MAVACH], (error, result) => {
     if (error) {
       console.error("Lỗi khi xóa sản phẩm:", error);
       return res.status(500).json({ error: "Lỗi khi xóa sản phẩm" });
     }
-    res.json({ message: "Xóa sản phẩm thành công!" });
+    if (result.affectedRows > 0) {
+      return res.json({ message: "Xóa sản phẩm thành công!" });
+    } else {
+      return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
+    }
   });
 });
 
@@ -102,7 +107,7 @@ app.get("/api/Customers", (req, res) => {
 app.post("/api/Customers", (req, res) => {
   const { MA_KH, HO_KH, TEN_KH, SDT_KH, EMAIL_KH } = req.body;
   const sql =
-    "INSERT INTO KHACHHANG (MA_KH, TEN_KH, HO_KH, SDT_KH, EMAIL_KH) VALUES (?, ?, ?, ?, ?)";
+    "INSERT INTO KHACHHANG (MA_KH, HO_KH, TEN_KH, SDT_KH, EMAIL_KH) VALUES (?, ?, ?, ?, ?)";
   pool.query(sql, [MA_KH, HO_KH, TEN_KH, SDT_KH, EMAIL_KH], (error, result) => {
     if (error) {
       console.error("Lỗi khi thêm khách hàng:", error);
@@ -143,6 +148,29 @@ app.delete("/api/Customers/:MA_KH", (req, res) => {
       return res.status(500).json({ error: "Lỗi khi xóa khách hàng" });
     }
     res.json({ message: "Xóa khách hàng thành công!" });
+  });
+});
+/* ==================================Đăng nhập=============================================================*/
+// API Đăng nhập
+app.post("/api/login", (req, res) => {
+  const { id, password } = req.body; // Nhận ID và mật khẩu từ client
+  const sql = "SELECT * FROM NHANVIEN WHERE MA_NV = ? AND MATKHAU_NV = ?";
+
+  pool.query(sql, [id, password], (error, results) => {
+    if (error) {
+      console.error("Lỗi khi đăng nhập:", error);
+      return res.status(500).json({ error: "Lỗi hệ thống" });
+    }
+
+    if (results.length > 0) {
+      const user = results[0];
+      res.json({ success: true, user }); // Trả về thông tin người dùng nếu đăng nhập thành công
+    } else {
+      res.json({
+        success: false,
+        message: "Tài khoản hoặc mật khẩu không đúng",
+      });
+    }
   });
 });
 
