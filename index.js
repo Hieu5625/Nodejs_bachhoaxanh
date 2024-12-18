@@ -152,6 +152,118 @@ app.delete("/api/Customers/:MA_KH", (req, res) => {
     res.json({ message: "Xóa khách hàng thành công!" });
   });
 });
+/* ============================= NHÂN VIÊN ================================= */
+
+// API GET - Lấy danh sách nhân viên
+app.get("/api/employees", (req, res) => {
+  const sql =
+    "SELECT MA_NV, HO_NV, TEN_NV, DATE_FORMAT(NGAYSINH, '%d-%m-%Y') AS NGAYSINH, DIACHI_NV, CHUCVU_NV, SDT_NV, EMAIL_NV FROM nhanvien";
+  pool.query(sql, (error, results) => {
+    if (error) {
+      console.error("Lỗi khi lấy danh sách nhân viên:", error);
+      return res.status(500).json({ error: "Lỗi khi lấy danh sách nhân viên" });
+    }
+    res.json(results);
+  });
+});
+
+// API GET - Lấy thông tin nhân viên theo mã
+app.get("/api/employees/:MA_NV", (req, res) => {
+  const { MA_NV } = req.params;
+  const sql =
+    "SELECT MA_NV, HO_NV, TEN_NV, DATE_FORMAT(NGAYSINH, '%d-%m-%Y') AS NGAYSINH, DIACHI_NV, CHUCVU_NV, SDT_NV, EMAIL_NV FROM nhanvien WHERE MA_NV = ?";
+  pool.query(sql, [MA_NV], (error, results) => {
+    if (error) {
+      console.error("Lỗi khi lấy thông tin nhân viên:", error);
+      return res.status(500).json({ error: "Lỗi khi lấy thông tin nhân viên" });
+    }
+    if (results.length === 0) {
+      return res.status(404).json({ message: "Không tìm thấy nhân viên" });
+    }
+    res.json(results[0]);
+  });
+});
+
+// API POST - Thêm nhân viên mới
+app.post("/api/employees", (req, res) => {
+  const {
+    MA_NV,
+    HO_NV,
+    TEN_NV,
+    NGAYSINH,
+    DIACHI_NV,
+    CHUCVU_NV,
+    SDT_NV,
+    EMAIL_NV,
+  } = req.body;
+
+  const sql =
+    "INSERT INTO nhanvien (MA_NV, HO_NV, TEN_NV, NGAYSINH, DIACHI_NV, CHUCVU_NV, SDT_NV, EMAIL_NV) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+  pool.query(
+    sql,
+    [MA_NV, HO_NV, TEN_NV, NGAYSINH, DIACHI_NV, CHUCVU_NV, SDT_NV, EMAIL_NV],
+    (error, result) => {
+      if (error) {
+        console.error("Lỗi khi thêm nhân viên:", error);
+        return res.status(500).json({ error: "Lỗi khi thêm nhân viên" });
+      }
+
+      const getEmployeeSql =
+        "SELECT MA_NV, HO_NV, TEN_NV, DATE_FORMAT(NGAYSINH, '%d-%m-%Y') AS NGAYSINH, DIACHI_NV, CHUCVU_NV, SDT_NV, EMAIL_NV FROM nhanvien WHERE MA_NV = ?";
+      pool.query(getEmployeeSql, [MA_NV], (err, rows) => {
+        if (err) {
+          console.error("Lỗi khi lấy nhân viên vừa thêm:", err);
+          return res
+            .status(500)
+            .json({ error: "Lỗi khi lấy nhân viên vừa thêm" });
+        }
+        res.status(201).json(rows[0]);
+      });
+    }
+  );
+});
+
+// API PUT - Cập nhật thông tin nhân viên
+app.put("/api/employees/:MA_NV", (req, res) => {
+  const { MA_NV } = req.params;
+  const { HO_NV, TEN_NV, NGAYSINH, DIACHI_NV, CHUCVU_NV, SDT_NV, EMAIL_NV } =
+    req.body;
+
+  const sql =
+    "UPDATE nhanvien SET HO_NV = ?, TEN_NV = ?, NGAYSINH = ?, DIACHI_NV = ?, CHUCVU_NV = ?, SDT_NV = ?, EMAIL_NV = ? WHERE MA_NV = ?";
+  pool.query(
+    sql,
+    [HO_NV, TEN_NV, NGAYSINH, DIACHI_NV, CHUCVU_NV, SDT_NV, EMAIL_NV, MA_NV],
+    (error, result) => {
+      if (error) {
+        console.error("Lỗi khi cập nhật nhân viên:", error);
+        return res.status(500).json({ error: "Lỗi khi cập nhật nhân viên" });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Không tìm thấy nhân viên" });
+      }
+      res.json({ message: "Cập nhật nhân viên thành công!" });
+    }
+  );
+});
+
+// API DELETE - Xóa nhân viên
+app.delete("/api/employees/:MA_NV", (req, res) => {
+  const { MA_NV } = req.params;
+
+  const sql = "DELETE FROM nhanvien WHERE MA_NV = ?";
+  pool.query(sql, [MA_NV], (error, result) => {
+    if (error) {
+      console.error("Lỗi khi xóa nhân viên:", error);
+      return res.status(500).json({ error: "Lỗi khi xóa nhân viên" });
+    }
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Không tìm thấy nhân viên" });
+    }
+    res.json({ message: "Xóa nhân viên thành công!" });
+  });
+});
+
 /* ==================================Đăng nhập=============================================================*/
 // API Đăng nhập
 app.post("/api/login", (req, res) => {
