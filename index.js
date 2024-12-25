@@ -18,7 +18,16 @@ const pool = mysql.createPool(config);
 /* ==================================SẢN PHẨM=============================================================*/
 // API GET - Lấy danh sách sản phẩm
 app.get("/api/products", (req, res) => {
-  pool.query("SELECT * FROM hang", (error, results) => {
+  const { search } = req.query;
+  let sql = "SELECT * FROM hang";
+  const params = [];
+
+  if (search) {
+    sql += " WHERE TENHANG LIKE ?";
+    params.push(`%${search}%`);
+  }
+
+  pool.query(sql, params, (error, results) => {
     if (error) {
       console.error("Lỗi khi lấy danh sách sản phẩm:", error);
       return res.status(500).json({ error: "Lỗi khi lấy danh sách sản phẩm" });
@@ -27,67 +36,59 @@ app.get("/api/products", (req, res) => {
   });
 });
 
-// API POST - Thêm sản phẩm mới
-app.post("/api/products", (req, res) => {
-  const { MAVACH, TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA } =
-    req.body;
-  const sql =
-    "INSERT INTO hang (MAVACH, TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA) VALUES (?, ?, ?, ?, ?, ?)";
-  pool.query(
-    sql,
-    [MAVACH, TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA],
-    (error, result) => {
-      if (error) {
-        console.error("Lỗi khi thêm sản phẩm:", error);
-        return res.status(500).json({ error: "Lỗi khi thêm sản phẩm" });
-      }
-      res.status(201).json({
-        MAVACH: result.insertId,
-        MAVACH,
-        TENHANG,
-        MOTAHANG,
-        SOLUONGHIENCO,
-        DANHMUCHANG,
-        DONGIA,
-      });
-    }
-  );
-});
-
-// API PUT - Cập nhật sản phẩm
-app.put("/api/products/:MAVACH", (req, res) => {
-  const { MAVACH } = req.params;
-  const { TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA } = req.body;
-  const sql =
-    "UPDATE hang SET TENHANG = ?, MOTAHANG = ?, SOLUONGHIENCO = ?, DANHMUCHANG = ?, DONGIA = ? WHERE MAVACH = ?";
-  pool.query(
-    sql,
-    [TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA, MAVACH],
-    (error, result) => {
-      if (error) {
-        console.error("Lỗi khi cập nhật sản phẩm:", error);
-        return res.status(500).json({ error: "Lỗi khi cập nhật sản phẩm" });
-      }
-      res.json({ message: "Cập nhật sản phẩm thành công!" });
-    }
-  );
-});
-
-// API DELETE - Xóa sản phẩm
-app.delete("/api/products/:MAVACH", (req, res) => {
-  const { MAVACH } = req.params;
-  const sql = "DELETE FROM hang WHERE MAVACH = ?";
-
-  pool.query(sql, [MAVACH], (error, result) => {
+// API GET - Lấy danh mục sản phẩm
+app.get("/api/categories", (req, res) => {
+  const sql = "SELECT DISTINCT DANHMUCHANG FROM hang";
+  pool.query(sql, (error, results) => {
     if (error) {
-      console.error("Lỗi khi xóa sản phẩm:", error);
-      return res.status(500).json({ error: "Lỗi khi xóa sản phẩm" });
+      console.error("Lỗi khi lấy danh mục sản phẩm:", error);
+      return res.status(500).json({ error: "Lỗi khi lấy danh mục sản phẩm" });
     }
-    if (result.affectedRows > 0) {
-      return res.json({ message: "Xóa sản phẩm thành công!" });
-    } else {
-      return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
+    res.json(results.map((row) => row.DANHMUCHANG));
+  });
+});
+
+// API POST - Cập nhật số lượng sản phẩm từ phiếu nhập
+app.post("/api/products/update-from-receipt", (req, res) => {
+  const { SOPHIEUNHAPHANG } = req.body;
+
+  const sql = `
+    SELECT MAVACH, SUM(SOLUONGNHAP) AS TOTAL_QUANTITY
+    FROM CHITIETNHAPHANG
+    WHERE SOPHIEUNHAPHANG = ?
+    GROUP BY MAVACH
+  `;
+
+  pool.query(sql, [SOPHIEUNHAPHANG], (error, results) => {
+    if (error) {
+      console.error("Lỗi khi lấy chi tiết phiếu nhập:", error);
+      return res.status(500).json({ error: "Lỗi khi lấy chi tiết phiếu nhập" });
     }
+
+    const updatePromises = results.map((row) => {
+      return new Promise((resolve, reject) => {
+        const updateSql = `
+          UPDATE hang
+          SET SOLUONGHIENCO = SOLUONGHIENCO + ?
+          WHERE MAVACH = ?
+        `;
+        pool.query(updateSql, [row.TOTAL_QUANTITY, row.MAVACH], (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    });
+
+    Promise.all(updatePromises)
+      .then(() => {
+        res.json({ message: "Cập nhật số lượng thành công từ phiếu nhập!" });
+      })
+      .catch((updateError) => {
+        console.error("Lỗi khi cập nhật số lượng:", updateError);
+        res
+          .status(500)
+          .json({ error: "Lỗi khi cập nhật số lượng từ phiếu nhập" });
+      });
   });
 });
 
@@ -241,7 +242,6 @@ app.get("/api/receipts", (req, res) => {
     FROM PHIEUNHAPHANG
     JOIN NHANVIEN ON PHIEUNHAPHANG.MA_NV = NHANVIEN.MA_NV
   `;
-
   pool.query(sql, (error, results) => {
     if (error) {
       console.error("Lỗi khi lấy danh sách phiếu nhập:", error);
@@ -252,10 +252,10 @@ app.get("/api/receipts", (req, res) => {
     res.json(results);
   });
 });
+
 // API GET - Lấy chi tiết phiếu nhập
 app.get("/api/receipts/:SOPHIEUNHAPHANG", (req, res) => {
   const { SOPHIEUNHAPHANG } = req.params;
-
   const sql = `
     SELECT CHITIETNHAPHANG.SOPHIEUNHAPHANG,
            HANG.TENHANG,
@@ -266,32 +266,48 @@ app.get("/api/receipts/:SOPHIEUNHAPHANG", (req, res) => {
     JOIN HANG ON CHITIETNHAPHANG.MAVACH = HANG.MAVACH
     WHERE CHITIETNHAPHANG.SOPHIEUNHAPHANG = ?
   `;
-
   pool.query(sql, [SOPHIEUNHAPHANG], (error, results) => {
     if (error) {
       console.error("Lỗi khi lấy chi tiết phiếu nhập:", error);
       return res.status(500).json({ error: "Lỗi khi lấy chi tiết phiếu nhập" });
     }
-
     if (results.length === 0) {
       return res
         .status(404)
         .json({ message: "Không tìm thấy chi tiết phiếu nhập" });
     }
-
     res.json(results);
   });
 });
+// API GET - Lấy danh sách nhà cung cấp không trùng lặp
+app.get("/api/suppliers", (req, res) => {
+  const sql = `
+    SELECT DISTINCT NHACUNGCAP 
+    FROM PHIEUNHAPHANG
+    WHERE NHACUNGCAP IS NOT NULL
+  `;
+  pool.query(sql, (error, results) => {
+    if (error) {
+      console.error("Lỗi khi lấy danh sách nhà cung cấp:", error);
+      return res
+        .status(500)
+        .json({ error: "Lỗi khi lấy danh sách nhà cung cấp" });
+    }
+    res.json(results.map((row) => row.NHACUNGCAP));
+  });
+});
 
-// Thêm phiếu nhập hàng
+// API POST - Thêm phiếu nhập hàng
 app.post("/api/receipts", (req, res) => {
   const { SOPHIEUNHAPHANG, MA_NV, NHACUNGCAP, NGAYNHAPHANG } = req.body;
-  const sql =
-    "INSERT INTO PHIEUNHAPHANG (SOPHIEUNHAPHANG, MA_NV, NHACUNGCAP, NGAYNHAPHANG) VALUES (?, ?, ?, ?)";
+  const sql = `
+    INSERT INTO PHIEUNHAPHANG (SOPHIEUNHAPHANG, MA_NV, NHACUNGCAP, NGAYNHAPHANG)
+    VALUES (?, ?, ?, ?)
+  `;
   pool.query(
     sql,
     [SOPHIEUNHAPHANG, MA_NV, NHACUNGCAP, NGAYNHAPHANG],
-    (error, result) => {
+    (error) => {
       if (error) {
         console.error("Lỗi khi thêm phiếu nhập hàng:", error);
         return res.status(500).json({ error: "Lỗi khi thêm phiếu nhập hàng" });
@@ -301,34 +317,17 @@ app.post("/api/receipts", (req, res) => {
   );
 });
 
-// API Thêm chi tiết phiếu nhập hàng
-app.post("/api/receipts", (req, res) => {
-  const { SOPHIEUNHAPHANG, MA_NV, NHACUNGCAP, NGAYNHAPHANG } = req.body;
-  const sql =
-    "INSERT INTO PHIEUNHAPHANG (SOPHIEUNHAPHANG, MA_NV, NHACUNGCAP, NGAYNHAPHANG) VALUES (?, ?, ?, ?)";
-  pool.query(
-    sql,
-    [SOPHIEUNHAPHANG, MA_NV, NHACUNGCAP, NGAYNHAPHANG],
-    (error, result) => {
-      if (error) {
-        console.error("Lỗi khi thêm phiếu nhập hàng:", error);
-        return res.status(500).json({ error: "Lỗi khi thêm phiếu nhập hàng" });
-      }
-      res.status(201).json({ message: "Thêm phiếu nhập hàng thành công!" });
-    }
-  );
-});
-
-// API Thêm chi tiết phiếu nhập hàng
+// API POST - Thêm chi tiết phiếu nhập hàng
 app.post("/api/receipt-details", (req, res) => {
-  const { SOPHIEUNHAPHANG, MAVACH, SOLUONGNHAP, DONGIANHAP, CHATLUONGHANG } =
-    req.body;
-  const sql =
-    "INSERT INTO CHITIETNHAPHANG (SOPHIEUNHAPHANG, MAVACH, SOLUONGNHAP, DONGIANHAP, CHATLUONGHANG) VALUES (?, ?, ?, ?, ?)";
+  const { SOPHIEUNHAPHANG, MAVACH, SOLUONGNHAP, DONGIANHAP } = req.body;
+  const sql = `
+    INSERT INTO CHITIETNHAPHANG (SOPHIEUNHAPHANG, MAVACH, SOLUONGNHAP, DONGIANHAP, CHATLUONGHANG)
+    VALUES (?, ?, ?, ?, DEFAULT)
+  `;
   pool.query(
     sql,
-    [SOPHIEUNHAPHANG, MAVACH, SOLUONGNHAP, DONGIANHAP, CHATLUONGHANG],
-    (error, result) => {
+    [SOPHIEUNHAPHANG, MAVACH, SOLUONGNHAP, DONGIANHAP],
+    (error) => {
       if (error) {
         console.error("Lỗi khi thêm chi tiết phiếu nhập hàng:", error);
         return res
@@ -339,7 +338,68 @@ app.post("/api/receipt-details", (req, res) => {
     }
   );
 });
+/* ==================================Lập Phiếu Nhập=============================================================*/
+// API GET - Lấy danh sách nhân viên
+app.get("/api/employees", (req, res) => {
+  const sql = "SELECT MA_NV, HOTEN_NV FROM NHANVIEN";
+  pool.query(sql, (error, results) => {
+    if (error) {
+      console.error("Lỗi khi lấy danh sách nhân viên:", error);
+      return res.status(500).json({ error: "Lỗi khi lấy danh sách nhân viên" });
+    }
+    res.json(results);
+  });
+});
 
+// API GET - Lấy danh sách khách hàng
+app.get("/api/customers", (req, res) => {
+  const sql = "SELECT MA_KH, HOTEN_KH FROM KHACHHANG";
+  pool.query(sql, (error, results) => {
+    if (error) {
+      console.error("Lỗi khi lấy danh sách khách hàng:", error);
+      return res
+        .status(500)
+        .json({ error: "Lỗi khi lấy danh sách khách hàng" });
+    }
+    res.json(results);
+  });
+});
+
+// API POST - Thêm hóa đơn mới
+app.post("/api/invoices", (req, res) => {
+  const { MA_HD, MA_KH, MA_NV, NGAYLAPHOADON, DATHANHTOAN } = req.body;
+  const sql =
+    "INSERT INTO HOADON (MA_HD, MA_KH, MA_NV, NGAYLAPHOADON, DATHANHTOAN) VALUES (?, ?, ?, ?, ?)";
+  pool.query(
+    sql,
+    [MA_HD, MA_KH, MA_NV, NGAYLAPHOADON, DATHANHTOAN],
+    (error, result) => {
+      if (error) {
+        console.error("Lỗi khi thêm hóa đơn:", error);
+        return res.status(500).json({ error: "Lỗi khi thêm hóa đơn" });
+      }
+      res.status(201).json({ message: "Thêm hóa đơn thành công!" });
+    }
+  );
+});
+
+// API POST - Thêm chi tiết hóa đơn
+app.post("/api/invoice-details", (req, res) => {
+  const { MA_HD, MAVACH, SOLUONGBAN, GIAMGIA, THANHTIEN } = req.body;
+  const sql =
+    "INSERT INTO CHITIETHOADON (MA_HD, MAVACH, SOLUONGBAN, GIAMGIA, THANHTIEN) VALUES (?, ?, ?, ?, ?)";
+  pool.query(
+    sql,
+    [MA_HD, MAVACH, SOLUONGBAN, GIAMGIA, THANHTIEN],
+    (error, result) => {
+      if (error) {
+        console.error("Lỗi khi thêm chi tiết hóa đơn:", error);
+        return res.status(500).json({ error: "Lỗi khi thêm chi tiết hóa đơn" });
+      }
+      res.status(201).json({ message: "Thêm chi tiết hóa đơn thành công!" });
+    }
+  );
+});
 /* ==================================Đăng nhập=============================================================*/
 // API Đăng nhập
 app.post("/api/login", (req, res) => {
