@@ -18,8 +18,8 @@ const pool = mysql.createPool(config);
 /* ==================================SẢN PHẨM=============================================================*/
 // API GET - Lấy danh sách sản phẩm
 app.get("/api/products", (req, res) => {
-  const { search } = req.query;
-  let sql = "SELECT * FROM hang";
+  const { search } = req.query; // Lọc theo tên sản phẩm (nếu có)
+  let sql = "SELECT * FROM HANG";
   const params = [];
 
   if (search) {
@@ -38,7 +38,7 @@ app.get("/api/products", (req, res) => {
 
 // API GET - Lấy danh mục sản phẩm
 app.get("/api/categories", (req, res) => {
-  const sql = "SELECT DISTINCT DANHMUCHANG FROM hang";
+  const sql = "SELECT DISTINCT DANHMUCHANG FROM HANG";
   pool.query(sql, (error, results) => {
     if (error) {
       console.error("Lỗi khi lấy danh mục sản phẩm:", error);
@@ -48,47 +48,160 @@ app.get("/api/categories", (req, res) => {
   });
 });
 
-// API POST - Cập nhật số lượng sản phẩm từ phiếu nhập
-app.post("/api/products/update-from-receipt", (req, res) => {
-  const { SOPHIEUNHAPHANG } = req.body;
+// API POST - Thêm sản phẩm mới
+app.post("/api/products", (req, res) => {
+  const { MAVACH, TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA } =
+    req.body;
 
   const sql = `
-    SELECT MAVACH, SUM(SOLUONGNHAP) AS TOTAL_QUANTITY
-    FROM CHITIETNHAPHANG
-    WHERE SOPHIEUNHAPHANG = ?
-    GROUP BY MAVACH
+    INSERT INTO HANG (MAVACH, TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `;
+  pool.query(
+    sql,
+    [MAVACH, TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA],
+    (error, result) => {
+      if (error) {
+        console.error("Lỗi khi thêm sản phẩm:", error);
+        return res.status(500).json({ error: "Lỗi khi thêm sản phẩm" });
+      }
+      res.status(201).json({ message: "Thêm sản phẩm thành công!" });
+    }
+  );
+});
+// API POST - Thêm sản phẩm từ mã phiếu lập
+app.post("/api/products/from-receipt", (req, res) => {
+  const { MAPHIEU, products } = req.body;
+
+  // Kiểm tra dữ liệu đầu vào
+  if (!MAPHIEU || !Array.isArray(products) || products.length === 0) {
+    return res.status(400).json({ error: "Dữ liệu đầu vào không hợp lệ!" });
+  }
+
+  const sqlInsertProduct = `
+    INSERT INTO HANG (MAVACH, TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA)
+    VALUES (?, ?, ?, ?, ?, ?)
   `;
 
-  pool.query(sql, [SOPHIEUNHAPHANG], (error, results) => {
+  const sqlInsertReceiptProduct = `
+    INSERT INTO PHIEUNHAPHANG_SANPHAM (MAPHIEU, MAVACH, SOLUONGNHAP)
+    VALUES (?, ?, ?)
+  `;
+
+  const connection = pool.promise();
+
+  // Sử dụng transaction để đảm bảo tính toàn vẹn dữ liệu
+  connection
+    .getConnection()
+    .then(async (conn) => {
+      try {
+        await conn.beginTransaction();
+
+        for (const product of products) {
+          const {
+            MAVACH,
+            TENHANG,
+            MOTAHANG,
+            SOLUONGHIENCO,
+            DANHMUCHANG,
+            DONGIA,
+          } = product;
+
+          // Thêm sản phẩm mới vào bảng HANG
+          await conn.query(sqlInsertProduct, [
+            MAVACH,
+            TENHANG,
+            MOTAHANG,
+            SOLUONGHIENCO,
+            DANHMUCHANG,
+            DONGIA,
+          ]);
+
+          // Liên kết sản phẩm với mã phiếu lập trong bảng PHIEUNHAPHANG_SANPHAM
+          await conn.query(sqlInsertReceiptProduct, [
+            MAPHIEU,
+            MAVACH,
+            SOLUONGHIENCO,
+          ]);
+        }
+
+        await conn.commit();
+        res
+          .status(201)
+          .json({ message: "Thêm sản phẩm từ mã phiếu thành công!" });
+      } catch (error) {
+        await conn.rollback();
+        console.error("Lỗi khi thêm sản phẩm từ mã phiếu:", error);
+        res.status(500).json({ error: "Không thể thêm sản phẩm từ mã phiếu" });
+      } finally {
+        conn.release();
+      }
+    })
+    .catch((err) => {
+      console.error("Lỗi kết nối cơ sở dữ liệu:", err);
+      res.status(500).json({ error: "Lỗi kết nối cơ sở dữ liệu" });
+    });
+});
+
+// API PUT - Cập nhật sản phẩm
+app.put("/api/products/:MAVACH", (req, res) => {
+  const { MAVACH } = req.params;
+  const { TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA } = req.body;
+
+  const sql = `
+    UPDATE HANG
+    SET TENHANG = ?, MOTAHANG = ?, SOLUONGHIENCO = ?, DANHMUCHANG = ?, DONGIA = ?
+    WHERE MAVACH = ?
+  `;
+  pool.query(
+    sql,
+    [TENHANG, MOTAHANG, SOLUONGHIENCO, DANHMUCHANG, DONGIA, MAVACH],
+    (error, result) => {
+      if (error) {
+        console.error("Lỗi khi cập nhật sản phẩm:", error);
+        return res.status(500).json({ error: "Lỗi khi cập nhật sản phẩm" });
+      }
+      res.json({ message: "Cập nhật sản phẩm thành công!" });
+    }
+  );
+});
+
+// API DELETE - Xóa sản phẩm
+app.delete("/api/products/:MAVACH", (req, res) => {
+  const { MAVACH } = req.params;
+
+  const sql = "DELETE FROM HANG WHERE MAVACH = ?";
+  pool.query(sql, [MAVACH], (error, result) => {
     if (error) {
-      console.error("Lỗi khi lấy chi tiết phiếu nhập:", error);
-      return res.status(500).json({ error: "Lỗi khi lấy chi tiết phiếu nhập" });
+      console.error("Lỗi khi xóa sản phẩm:", error);
+      return res.status(500).json({ error: "Lỗi khi xóa sản phẩm" });
     }
 
-    const updatePromises = results.map((row) => {
-      return new Promise((resolve, reject) => {
-        const updateSql = `
-          UPDATE hang
-          SET SOLUONGHIENCO = SOLUONGHIENCO + ?
-          WHERE MAVACH = ?
-        `;
-        pool.query(updateSql, [row.TOTAL_QUANTITY, row.MAVACH], (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-    });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
+    }
 
-    Promise.all(updatePromises)
-      .then(() => {
-        res.json({ message: "Cập nhật số lượng thành công từ phiếu nhập!" });
-      })
-      .catch((updateError) => {
-        console.error("Lỗi khi cập nhật số lượng:", updateError);
-        res
-          .status(500)
-          .json({ error: "Lỗi khi cập nhật số lượng từ phiếu nhập" });
-      });
+    res.json({ message: "Xóa sản phẩm thành công!" });
+  });
+});
+
+// API PUT - Cập nhật số lượng sản phẩm
+app.put("/api/products/update-quantity", (req, res) => {
+  const { MAVACH, quantityChange } = req.body;
+
+  const sql = `
+    UPDATE HANG
+    SET SOLUONGHIENCO = SOLUONGHIENCO + ?
+    WHERE MAVACH = ?
+  `;
+
+  pool.query(sql, [quantityChange, MAVACH], (error, result) => {
+    if (error) {
+      console.error("Lỗi khi cập nhật số lượng sản phẩm:", error);
+      return res.status(500).json({ error: "Không thể cập nhật số lượng" });
+    }
+
+    res.json({ message: "Cập nhật số lượng sản phẩm thành công!" });
   });
 });
 
@@ -346,7 +459,8 @@ app.get("/api/invoices", (req, res) => {
            KHACHHANG.HOTEN_KH, 
            NHANVIEN.HOTEN_NV, 
            DATE_FORMAT(HOADON.NGAYLAPHOADON, '%d-%m-%Y') AS NGAYLAPHOADON, 
-           HOADON.DATHANHTOAN
+           HOADON.DATHANHTOAN,
+           HOADON.TONGTIEN
     FROM HOADON
     LEFT JOIN KHACHHANG ON HOADON.MA_KH = KHACHHANG.MA_KH
     JOIN NHANVIEN ON HOADON.MA_NV = NHANVIEN.MA_NV
@@ -386,48 +500,84 @@ app.get("/api/invoices/:MA_HD", (req, res) => {
 app.post("/api/invoices", async (req, res) => {
   const { MA_HD, MA_KH, MA_NV, NGAYLAPHOADON, DATHANHTOAN, details } = req.body;
 
-  // Sử dụng giá trị mặc định cho khách hàng nếu không được cung cấp
-  const finalMA_KH = MA_KH || "kh001";
-  const sqlInvoice = `
-    INSERT INTO HOADON (MA_HD, MA_KH, MA_NV, NGAYLAPHOADON, DATHANHTOAN)
-    VALUES (?, ?, ?, ?, ?)
-  `;
+  // Kiểm tra dữ liệu đầu vào
+  if (
+    !MA_HD ||
+    !MA_NV ||
+    !NGAYLAPHOADON ||
+    !Array.isArray(details) ||
+    details.length === 0
+  ) {
+    return res.status(400).json({ error: "Dữ liệu đầu vào không hợp lệ!" });
+  }
 
+  const connection = await pool.promise().getConnection();
   try {
-    await pool.query(sqlInvoice, [
+    await connection.beginTransaction();
+
+    const totalAmount = details.reduce(
+      (sum, detail) => sum + detail.THANHTIEN,
+      0
+    );
+    const finalMA_KH = MA_KH || "kh001";
+
+    // Thêm hóa đơn chính
+    const sqlInvoice = `
+      INSERT INTO HOADON (MA_HD, MA_KH, MA_NV, NGAYLAPHOADON, DATHANHTOAN, TONGTIEN)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+    await connection.query(sqlInvoice, [
       MA_HD,
       finalMA_KH,
       MA_NV,
       NGAYLAPHOADON,
       DATHANHTOAN,
+      totalAmount,
     ]);
 
-    const detailPromises = details.map((detail) => {
+    // Thêm chi tiết hóa đơn và trừ số lượng sản phẩm
+    for (const detail of details) {
       const { MAVACH, SOLUONGBAN, GIAMGIA, THANHTIEN } = detail;
+
       const sqlDetail = `
         INSERT INTO CHITIETHOADON (MA_HD, MAVACH, SOLUONGBAN, GIAMGIA, THANHTIEN)
         VALUES (?, ?, ?, ?, ?)
       `;
-      return pool.query(sqlDetail, [
+      await connection.query(sqlDetail, [
         MA_HD,
         MAVACH,
         SOLUONGBAN,
         GIAMGIA,
         THANHTIEN,
       ]);
-    });
 
-    await Promise.all(detailPromises);
-    res
-      .status(201)
-      .json({ message: "Thêm hóa đơn và chi tiết hóa đơn thành công!" });
+      // Trừ số lượng sản phẩm trong bảng HANG
+      const sqlUpdateProduct = `
+        UPDATE HANG
+        SET SOLUONGHIENCO = SOLUONGHIENCO - ?
+        WHERE MAVACH = ? AND SOLUONGHIENCO >= ?
+      `;
+      const [updateResult] = await connection.query(sqlUpdateProduct, [
+        SOLUONGBAN,
+        MAVACH,
+        SOLUONGBAN,
+      ]);
+      if (updateResult.affectedRows === 0) {
+        throw new Error(`Số lượng sản phẩm không đủ: ${MAVACH}`);
+      }
+    }
+
+    await connection.commit();
+    res.status(201).json({ message: "Thêm hóa đơn thành công!" });
   } catch (error) {
-    console.error("Lỗi khi thêm hóa đơn hoặc chi tiết hóa đơn:", error);
-    res
-      .status(500)
-      .json({ error: "Lỗi khi thêm hóa đơn hoặc chi tiết hóa đơn" });
+    await connection.rollback();
+    console.error("Lỗi khi thêm hóa đơn:", error.message || error);
+    res.status(500).json({ error: error.message || "Lỗi khi thêm hóa đơn" });
+  } finally {
+    connection.release();
   }
 });
+
 // API PUT - Cập nhật trạng thái thanh toán của hóa đơn
 app.put("/api/invoices/:MA_HD", (req, res) => {
   const { MA_HD } = req.params;
@@ -457,6 +607,62 @@ app.get("/api/products", (req, res) => {
     }
     res.json(results);
   });
+});
+// API PUT - Cập nhật số lượng sản phẩm khi thanh toán
+app.put("/api/invoices/:MA_HD/update-stock", async (req, res) => {
+  const { MA_HD } = req.params;
+
+  const connection = await pool.promise().getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // Lấy chi tiết hóa đơn
+    const sqlGetDetails = `
+      SELECT MAVACH, SOLUONGBAN
+      FROM CHITIETHOADON
+      WHERE MA_HD = ?
+    `;
+    const [details] = await connection.query(sqlGetDetails, [MA_HD]);
+
+    if (details.length === 0) {
+      throw new Error("Không tìm thấy chi tiết hóa đơn!");
+    }
+
+    // Cập nhật số lượng sản phẩm
+    for (const detail of details) {
+      const { MAVACH, SOLUONGBAN } = detail;
+      const sqlUpdateStock = `
+        UPDATE HANG
+        SET SOLUONGHIENCO = SOLUONGHIENCO - ?
+        WHERE MAVACH = ? AND SOLUONGHIENCO >= ?
+      `;
+      const [updateResult] = await connection.query(sqlUpdateStock, [
+        SOLUONGBAN,
+        MAVACH,
+        SOLUONGBAN,
+      ]);
+
+      if (updateResult.affectedRows === 0) {
+        throw new Error(
+          `Số lượng sản phẩm không đủ hoặc sản phẩm không tồn tại: ${MAVACH}`
+        );
+      }
+    }
+
+    await connection.commit();
+    res.json({ message: "Cập nhật số lượng sản phẩm thành công!" });
+  } catch (error) {
+    await connection.rollback();
+    console.error(
+      "Lỗi khi cập nhật số lượng sản phẩm:",
+      error.message || error
+    );
+    res
+      .status(500)
+      .json({ error: error.message || "Lỗi khi cập nhật số lượng sản phẩm" });
+  } finally {
+    connection.release();
+  }
 });
 
 /* ==================================Đăng nhập=============================================================*/
